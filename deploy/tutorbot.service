@@ -1,0 +1,16 @@
+[Unit]
+Description=Tutor Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tutorbot
+WorkingDirectory=/opt/tutorbot
+ExecStart=/opt/tutorbot/.venv/bin/python run.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
