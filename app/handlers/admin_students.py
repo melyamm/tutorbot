@@ -428,7 +428,12 @@ async def oneoff_duration(cq: CallbackQuery, callback_data: CB, state: FSMContex
 @router.callback_query(CB.filter(F.a == "ops"))
 async def cb_ops(cq: CallbackQuery, callback_data: CB, state: FSMContext):
     await state.clear()
-    sid = callback_data.i
+    text, markup = await ops_view(callback_data.i)
+    await edit(cq.message, text, markup)
+    await cq.answer()
+
+
+async def ops_view(sid: int):
     s = await sv.student(sid)
     rows = await db.rows("SELECT * FROM ledger WHERE student_id=? ORDER BY id DESC LIMIT 15", sid)
     lines = [f"📜 Операции: <b>{h(s['name'])}</b>", sv.balance_line(await sv.balance(sid)), ""]
@@ -437,17 +442,85 @@ async def cb_ops(cq: CallbackQuery, callback_data: CB, state: FSMContext):
             d = tu.parse_iso(r["created_at"]).astimezone(cfg.tz)
             sign = "+" if r["amount"] > 0 else "-"
             lines.append(f"{d:%d.%m} · {h(r['note'] or r['kind'])} · {sign}{rub(abs(r['amount']))}")
-        lines.append("\n+ начисление, - оплата")
+        lines.append("\n+ начисление, - оплата или списание")
     else:
         lines.append("Операций пока нет.")
-    await edit(
-        cq.message,
+    bal = await sv.balance(sid)
+    return (
         "\n".join(lines),
         ikb(
             [btn("💰 Внести оплату", "pay_add", sid, "-"), btn("➕ Начислить", "pay_add", sid, "+")],
+            [btn(f"🧽 Списать долг {rub(bal)}", "wo_q", sid)] if bal > 0 else [],
+            [btn("🗑 Удалить операцию", "op_list", sid)] if rows else [],
             [btn("« Назад", "st", sid)],
         ),
     )
+
+
+def _op_label(r) -> str:
+    d = tu.parse_iso(r["created_at"]).astimezone(cfg.tz)
+    sign = "+" if r["amount"] > 0 else "-"
+    return f"{d:%d.%m} {r['note'] or r['kind']} {sign}{rub(abs(r['amount']))}"
+
+
+@router.callback_query(CB.filter(F.a == "op_list"))
+async def cb_op_list(cq: CallbackQuery, callback_data: CB):
+    sid = callback_data.i
+    rows = await db.rows("SELECT * FROM ledger WHERE student_id=? ORDER BY id DESC LIMIT 10", sid)
+    buttons = [[btn("🗑 " + _op_label(r)[:55], "op_delq", r["id"])] for r in rows]
+    buttons.append([btn("« Назад", "ops", sid)])
+    await edit(cq.message, "Какую операцию удалить? Долг пересчитается автоматически.", ikb(*buttons))
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "op_delq"))
+async def cb_op_delq(cq: CallbackQuery, callback_data: CB):
+    r = await db.one("SELECT * FROM ledger WHERE id=?", callback_data.i)
+    if not r:
+        await cq.answer("Уже удалено")
+        return
+    await edit(
+        cq.message,
+        f"Удалить «{h(_op_label(r))}»?",
+        ikb([btn("Да, удалить", "op_del", r["id"]), btn("Нет", "op_list", r["student_id"])]),
+    )
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "op_del"))
+async def cb_op_del(cq: CallbackQuery, callback_data: CB):
+    r = await db.one("SELECT * FROM ledger WHERE id=?", callback_data.i)
+    if r:
+        await db.run("DELETE FROM ledger WHERE id=?", r["id"])
+        text, markup = await ops_view(r["student_id"])
+        await edit(cq.message, "🗑 Удалено.\n\n" + text, markup)
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "wo_q"))
+async def cb_wo_q(cq: CallbackQuery, callback_data: CB):
+    sid = callback_data.i
+    s = await sv.student(sid)
+    bal = await sv.balance(sid)
+    await edit(
+        cq.message,
+        f"Списать долг {rub(bal)} у <b>{h(s['name'])}</b>? Это не считается полученной оплатой.",
+        ikb([btn("Да, списать", "wo", sid), btn("Нет", "ops", sid)]),
+    )
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "wo"))
+async def cb_wo(cq: CallbackQuery, callback_data: CB):
+    sid = callback_data.i
+    bal = await sv.balance(sid)
+    if bal > 0:
+        await db.run(
+            "INSERT INTO ledger(student_id, amount, kind, note, created_at) VALUES(?,?,?,?,?)",
+            sid, -bal, "writeoff", "долг списан", tu.iso(tu.now_utc()),
+        )
+    text, markup = await ops_view(sid)
+    await edit(cq.message, (f"🧽 Списано {rub(bal)}.\n\n" if bal > 0 else "") + text, markup)
     await cq.answer()
 
 

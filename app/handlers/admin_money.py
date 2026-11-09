@@ -14,7 +14,17 @@ from ..util import h, parse_int, rub
 router = Router(name="admin_money")
 
 
+async def finance_since():
+    raw = await db.kv_get("finance_since")
+    return tu.parse_iso(raw) if raw else None
+
+
 async def _month_stats(a, b) -> tuple[int, int, int]:
+    since = await finance_since()
+    if since and since > a:
+        a = since
+    if a >= b:
+        return 0, 0, 0
     lessons = await db.one(
         "SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS s FROM ledger "
         "WHERE kind='lesson' AND created_at>=? AND created_at<?",
@@ -44,6 +54,10 @@ async def finance_view():
     m_next = (m0 + timedelta(days=32)).replace(day=1)
     m_prev = (m0 - timedelta(days=1)).replace(day=1)
     lines = ["💰 <b>Финансы</b>", ""]
+    since = await finance_since()
+    if since:
+        lines.append(f"📍 Статистика считается с {since.astimezone(cfg.tz):%d.%m.%Y %H:%M}")
+        lines.append("")
     for a, b in ((m0, m_next), (m_prev, m0)):
         n, s, p = await _month_stats(a, b)
         lines.append(f"<b>{tu.MONTHS_NOM[a.month - 1]}</b>: занятий {n} на {rub(s)}, получено {rub(p)}")
@@ -61,8 +75,71 @@ async def finance_view():
         rows.append([btn(f"🧾 Заявки на оплату ({pending})", "pay_list")])
     if ds:
         rows.append([btn("🔔 Напомнить должникам", "money_rq")])
-    rows.append([btn("🔄 Обновить", "money")])
+    rows.append([btn("⚙️ Корректировка", "fin_cfg"), btn("🔄 Обновить", "money")])
     return "\n".join(lines), ikb(*rows)
+
+
+@router.callback_query(CB.filter(F.a == "fin_cfg"))
+async def cb_fin_cfg(cq: CallbackQuery):
+    since = await finance_since()
+    ds = await debtors()
+    rows = [[btn("📍 Считать статистику с этой минуты", "fin_since")]]
+    if since:
+        rows.append([btn("↩️ Считать за всё время", "fin_all")])
+    if ds:
+        rows.append([btn(f"🧽 Списать все долги ({rub(sum(b for _, b in ds))})", "fin_wo_q")])
+    rows.append([btn("« Финансы", "money")])
+    await edit(
+        cq.message,
+        "⚙️ <b>Корректировка финансов</b>\n\n"
+        "📍 <b>Считать с этой минуты</b>: доход и полученные оплаты за месяц будут считаться только с текущего "
+        "момента, старые занятия и оплаты в сводку не попадут. История операций не удаляется.\n\n"
+        "🧽 <b>Списать долги</b>: обнуляет долги всех учеников. Это не считается полученной оплатой.\n\n"
+        "Поправить отдельного ученика: карточка ученика → «📜 Операции».",
+        ikb(*rows),
+    )
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "fin_since"))
+async def cb_fin_since(cq: CallbackQuery):
+    await db.kv_set("finance_since", tu.iso(tu.now_utc()))
+    text, markup = await finance_view()
+    await edit(cq.message, "✅ Статистика теперь считается с этой минуты.\n\n" + text, markup)
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "fin_all"))
+async def cb_fin_all(cq: CallbackQuery):
+    await db.run("DELETE FROM kv WHERE k='finance_since'")
+    text, markup = await finance_view()
+    await edit(cq.message, "✅ Статистика снова за всё время.\n\n" + text, markup)
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "fin_wo_q"))
+async def cb_fin_wo_q(cq: CallbackQuery):
+    ds = await debtors()
+    await edit(
+        cq.message,
+        f"Списать долги у {len(ds)} учеников на {rub(sum(b for _, b in ds))}? Отменить это можно будет "
+        "только удалением операций вручную у каждого ученика.",
+        ikb([btn("Да, списать", "fin_wo"), btn("Нет", "fin_cfg")]),
+    )
+    await cq.answer()
+
+
+@router.callback_query(CB.filter(F.a == "fin_wo"))
+async def cb_fin_wo(cq: CallbackQuery):
+    now = tu.iso(tu.now_utc())
+    ds = await debtors()
+    await db.run_many(
+        "INSERT INTO ledger(student_id, amount, kind, note, created_at) VALUES(?,?,?,?,?)",
+        [(s["id"], -b, "writeoff", "долг списан", now) for s, b in ds],
+    )
+    text, markup = await finance_view()
+    await edit(cq.message, f"🧽 Списано {rub(sum(b for _, b in ds))}.\n\n" + text, markup)
+    await cq.answer()
 
 
 @router.callback_query(CB.filter(F.a == "money"))
