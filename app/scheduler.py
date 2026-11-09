@@ -32,7 +32,6 @@ async def tick(bot: Bot) -> None:
         _last_gen = now
     await lesson_reminders(bot, now)
     await auto_done(bot, now)
-    await bill_notify(bot, now)
     await hw_reminders(bot, now)
     await digest(bot, now)
     await weekly_backup(bot, now)
@@ -97,29 +96,6 @@ async def auto_done(bot: Bot, now: datetime) -> None:
             + (f", начислено {rub(price)}." if price else "."),
             reply_markup=ikb([btn("↩️ Не было", "ls_undo", r["id"])]),
         )
-
-
-async def bill_notify(bot: Bot, now: datetime) -> None:
-    rows = await db.rows(sv.LESSON_SQL + " WHERE l.status='done' AND l.billed=0")
-    for r in rows:
-        start = tu.parse_iso(r["start_utc"])
-        end = start + timedelta(minutes=r["duration"])
-        if end + timedelta(minutes=cfg.bill_delay_min) > now:
-            continue
-        await db.run("UPDATE lessons SET billed=1 WHERE id=?", r["id"])
-        if not r["price"]:
-            continue
-        bal = await sv.balance(r["student_id"])
-        text = (
-            f"✅ Занятие <b>{h(r['name'])}</b> {tu.fmt_dt(start, tu.zone(r['tz']))} проведено. "
-            f"Стоимость: {rub(r['price'])}.\n{sv.balance_line_parent(bal)}"
-        )
-        markup = None
-        if bal > 0:
-            if cfg.pay_info:
-                text += f"\n\n{h(cfg.pay_info)}"
-            markup = ikb([btn("✅ Я оплатил(а)", "pay_start", r["student_id"])])
-        await to_members(bot, r["student_id"], "parent", text, reply_markup=markup)
 
 
 async def hw_reminders(bot: Bot, now: datetime) -> None:

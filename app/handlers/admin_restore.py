@@ -8,7 +8,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from .. import db, kb, services as sv
-from ..config import cfg, ids
 from ..kb import CB, btn, ikb
 from ..notify import drop_kb
 from ..states import Restore
@@ -75,8 +74,8 @@ async def restore_yes(cq: CallbackQuery, state: FSMContext, bot: Bot):
     await sv.send_backup(bot, cq.message.chat.id, "💾 Копия базы ДО восстановления, на всякий случай.")
     await db.restore(path)
     os.remove(path)
-    cfg.admin_ids.update(ids(await db.kv_get("admin_ids")))
-    await db.kv_set("admin_ids", ",".join(str(i) for i in sorted(cfg.admin_ids)))
+    await sv.save_admins()
+    sv.reset_tutor_link()
     await sv.ensure_lessons()
     students = await db.val("SELECT COUNT(*) FROM students WHERE active=1", default=0)
     await cq.message.answer(f"✅ База восстановлена. Активных учеников: {students}.", reply_markup=kb.ADMIN_MENU)

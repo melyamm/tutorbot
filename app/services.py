@@ -7,7 +7,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 
 from . import db, timeutil as tu
-from .config import cfg
+from .config import cfg, ids
 from .kb import btn, ikb
 from .notify import member_ids, send, send_file, send_items
 from .util import h, rub
@@ -173,11 +173,22 @@ async def refund(lid: int) -> int:
 _tutor_link: str | None = None
 
 
+def reset_tutor_link() -> None:
+    global _tutor_link
+    _tutor_link = None
+
+
+async def save_admins() -> None:
+    await db.kv_set("admin_ids", ",".join(str(i) for i in sorted(cfg.admin_ids)))
+
+
 async def tutor_link(bot: Bot) -> str | None:
     global _tutor_link
     if _tutor_link:
         return _tutor_link
-    for uid in sorted(cfg.admin_ids):
+    contact = ids(await db.kv_get("tutor_contact"))
+    order = [i for i in contact if i in cfg.admin_ids] + sorted(i for i in cfg.admin_ids if i not in contact)
+    for uid in order:
         try:
             chat = await bot.get_chat(uid)
         except Exception:

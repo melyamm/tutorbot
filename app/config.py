@@ -42,7 +42,6 @@ class Config:
     tz: ZoneInfo
     db_path: str
     digest_hour: int
-    bill_delay_min: int
     pay_info: str
 
 
@@ -52,6 +51,5 @@ cfg = Config(
     tz=ZoneInfo(os.getenv("TUTOR_TZ", "Europe/Moscow")),
     db_path=_db_path(),
     digest_hour=int(os.getenv("DIGEST_HOUR", "9")),
-    bill_delay_min=int(os.getenv("BILL_DELAY_MIN", "30")),
     pay_info=os.getenv("PAY_INFO", "").strip(),
 )

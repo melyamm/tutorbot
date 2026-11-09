@@ -14,6 +14,13 @@ router = Router(name="common")
 ROLE_RU = {"student": "ученик", "parent": "родитель"}
 MODE_RU = {"admin": "репетитор", "student": "ученик", "parent": "родитель"}
 
+STUDENT_GUIDE = (
+    "Здесь будут напоминания о занятиях и домашка.\n\n"
+    "📤 Сдать ДЗ: кнопка под заданием, фото решения, «✅ Готово».\n"
+    "🙅 Не можешь прийти: «📅 Занятия» → «Не смогу».\n\n"
+    "Меню снизу 👇"
+)
+
 HELP = {
     "admin": (
         "<b>Как пользоваться</b>\n\n"
@@ -28,14 +35,17 @@ HELP = {
         "/unlink отвязывает тебя от тестовых подключений.\n"
         "/cancel прерывает любое действие.\n"
         "/backup присылает файл базы. Автоматически бэкап приходит каждое воскресенье вечером.\n"
-        "/restore загружает базу из файла бэкапа (например, при переезде на другой сервер)."
+        "/restore загружает базу из файла бэкапа (например, при переезде на другой сервер).\n"
+        "/transfer передаёт бота другому репетитору или добавляет второго.\n"
+        "/leave выйти из репетиторов, если в боте есть второй."
     ),
-    "student": "Здесь напоминания о занятиях и домашка.\n\n«📅 Занятия»: ближайшие занятия и отмена.\n«📚 Домашка»: задания и сдача решений.",
+    "student": None,
     "parent": (
         "Здесь напоминания о занятиях, статус домашних заданий и оплата.\n\n"
         "«📅 Занятия»: расписание и отмена.\n«💳 Оплата»: долг и подтверждение перевода.\n«📚 Домашка»: что задано и что сдано."
     ),
 }
+HELP["student"] = STUDENT_GUIDE
 
 
 @router.message(CommandStart(deep_link=True), StateFilter("*"))
@@ -43,6 +53,11 @@ async def start_invite(message: Message, command: CommandObject, state: FSMConte
     await state.clear()
     u = message.from_user
     code = (command.args or "").strip()
+    if code.startswith("a_"):
+        from .admin_transfer import accept
+
+        await accept(message, bot, code)
+        return
     inv = await db.one("SELECT * FROM invites WHERE code=?", code)
     st = await db.one("SELECT * FROM students WHERE id=? AND active=1", inv["student_id"]) if inv else None
     if not inv or inv["used_by"] or not st:
@@ -60,10 +75,7 @@ async def start_invite(message: Message, command: CommandObject, state: FSMConte
     await db.run("UPDATE invites SET used_by=?, used_at=? WHERE code=?", u.id, now, code)
     role, _ = await resolve(u.id)
     if inv["role"] == "student":
-        text = (
-            f"Привет, {h(st['name'])}! 👋\n\n"
-            "Теперь сюда будут приходить напоминания о занятиях и домашние задания. Решения тоже сдаёшь здесь."
-        )
+        text = f"Привет, {h(st['name'])}! 👋\n\n{STUDENT_GUIDE}"
     else:
         text = (
             f"Здравствуйте! 👋\n\nВы подключены как родитель ученика <b>{h(st['name'])}</b>. "

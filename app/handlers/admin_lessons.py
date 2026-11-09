@@ -109,9 +109,8 @@ async def cb_cancel(cq: CallbackQuery, callback_data: CB, bot: Bot):
     if not l or l["status"] not in ("planned", "done"):
         await cq.answer("Нельзя отменить", show_alert=True)
         return
-    was_billed = l["status"] == "done" and l["billed"]
-    refunded = await sv.refund(lid)
-    await db.run("UPDATE lessons SET status='cancelled', billed=1 WHERE id=?", lid)
+    await sv.refund(lid)
+    await db.run("UPDATE lessons SET status='cancelled' WHERE id=?", lid)
     start = tu.parse_iso(l["start_utc"])
     stz = tu.zone(l["tz"])
     if start > tu.now_utc():
@@ -119,17 +118,12 @@ async def cb_cancel(cq: CallbackQuery, callback_data: CB, bot: Bot):
         await to_members(
             bot, l["student_id"], "parent", f"❌ Занятие <b>{h(l['name'])}</b> {tu.fmt_dt(start, stz)} отменено репетитором."
         )
-    elif was_billed and refunded:
-        await to_members(
-            bot, l["student_id"], "parent",
-            f"↩️ Начисление {rub(refunded)} за {tu.fmt_dt(start, stz)} отменено: занятия не было.",
-        )
     await _show(cq, lid, "❌ Отменено.")
     await cq.answer()
 
 
 @router.callback_query(CB.filter(F.a == "ls_undo"))
-async def cb_undo(cq: CallbackQuery, callback_data: CB, bot: Bot):
+async def cb_undo(cq: CallbackQuery, callback_data: CB):
     lid = callback_data.i
     l = await sv.lesson(lid)
     if not l or l["status"] != "done":
@@ -137,13 +131,6 @@ async def cb_undo(cq: CallbackQuery, callback_data: CB, bot: Bot):
         return
     refunded = await sv.refund(lid)
     await db.run("UPDATE lessons SET status='cancelled' WHERE id=?", lid)
-    if l["billed"] and refunded:
-        start = tu.parse_iso(l["start_utc"])
-        await to_members(
-            bot, l["student_id"], "parent",
-            f"↩️ Начисление {rub(refunded)} за {tu.fmt_dt(start, tu.zone(l['tz']))} отменено: занятия не было.",
-        )
-    await db.run("UPDATE lessons SET billed=1 WHERE id=?", lid)
     await _show(cq, lid, f"↩️ Отмечено, что занятия не было. Возвращено {rub(refunded)}.")
     await cq.answer()
 

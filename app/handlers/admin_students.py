@@ -472,17 +472,12 @@ async def _apply_admin_money(bot: Bot, msg: Message, state: FSMContext, amount: 
     data = await state.get_data()
     await state.clear()
     sid, sign = data["sid"], data["sign"]
-    s = await sv.student(sid)
     if sign == "-":
         await db.run(
             "INSERT INTO ledger(student_id, amount, kind, note, created_at) VALUES(?,?,?,?,?)",
             sid, -amount, "payment", "оплата (внесена вручную)", tu.iso(tu.now_utc()),
         )
         bal = await sv.balance(sid)
-        await to_members(
-            bot, sid, "parent",
-            f"💰 Получена оплата {rub(amount)} за занятия <b>{h(s['name'])}</b>. Спасибо!\n{sv.balance_line_parent(bal)}",
-        )
         await msg.answer(f"✅ Оплата {rub(amount)} записана. {sv.balance_line(bal)}")
     else:
         await db.run(

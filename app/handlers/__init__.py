@@ -1,7 +1,7 @@
 from aiogram import Router
 
 from ..roles import IsAdmin, Role
-from . import admin_hw, admin_lessons, admin_menu, admin_money, admin_restore, admin_students, common, fallback, member
+from . import admin_hw, admin_lessons, admin_menu, admin_money, admin_restore, admin_students, admin_transfer, common, fallback, member
 
 
 def setup() -> Router:
@@ -13,6 +13,7 @@ def setup() -> Router:
     admin.include_routers(
         admin_menu.router,
         admin_restore.router,
+        admin_transfer.router,
         admin_students.router,
         admin_lessons.router,
         admin_hw.router,

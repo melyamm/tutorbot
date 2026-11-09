@@ -26,7 +26,10 @@ async def main() -> None:
     if not cfg.token:
         raise SystemExit("Не найден токен бота: задай BOT_TOKEN")
     await db.connect(cfg.db_path)
-    cfg.admin_ids.update(ids(await db.kv_get("admin_ids")))
+    stored = ids(await db.kv_get("admin_ids"))
+    if stored:
+        cfg.admin_ids.clear()
+        cfg.admin_ids.update(stored)
     logging.info("DB: %s, admins: %s", cfg.db_path, sorted(cfg.admin_ids) or "ещё не назначен, первый /start станет админом")
     bot = Bot(cfg.token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     me = await bot.get_me()
